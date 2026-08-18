@@ -1,5 +1,16 @@
 #!/bin/bash
 set -e
+
+# Debian stretch is EOL: deb.debian.org/security.debian.org no longer serve it
+# (404 on every index). Point apt at the archive instead. stretch-updates was
+# dropped when the release was archived, so it is not listed here.
+cat > /etc/apt/sources.list <<'EOF'
+deb http://archive.debian.org/debian stretch main
+deb http://archive.debian.org/debian-security stretch/updates main
+EOF
+# Archived Release files are long past their Valid-Until date.
+echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/10-no-check-valid-until
+
 apt-get update
 apt-get install -qy --no-install-recommends \
     netcat \
@@ -18,6 +29,7 @@ apt-get install -qy --no-install-recommends \
     libedit-dev \
     autoconf \
     automake \
+    autotools-dev \
     bison \
     libatomic-ops-dev \
     libtool \
@@ -25,11 +37,16 @@ apt-get install -qy --no-install-recommends \
 
 mkdir -p /home/firebird
 cd /home/firebird
-curl -L -o firebird-source.tar.bz2 -L \
+curl -fL -o firebird-source.tar.bz2 \
     "${FBURL}"
 tar --strip=1 -xf firebird-source.tar.bz2
-curl -L -o builds/make.new/config/config.guess -L "http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess;hb=HEAD"
-curl -L -o builds/make.new/config/config.sub -L "http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD"
+# The bundled config.guess/config.sub predate aarch64 and cannot detect this
+# host. These used to be fetched from git.savannah.gnu.org, but that endpoint is
+# unreliable (gitweb now 502s and cgit intermittently closes the connection mid
+# transfer, failing the build). The autotools-dev package ships versions that
+# resolve aarch64-unknown-linux-gnu correctly, with no network dependency.
+install -m 0755 /usr/share/misc/config.guess builds/make.new/config/config.guess
+install -m 0755 /usr/share/misc/config.sub builds/make.new/config/config.sub
 NOCONFIGURE=1 ./autogen.sh
 ./configure \
         --prefix=${PREFIX} --with-fbbin=${PREFIX}/bin --with-fbsbin=${PREFIX}/bin --with-fblib=${PREFIX}/lib \
@@ -66,6 +83,7 @@ apt-get purge -qy --auto-remove \
     libedit-dev \
     autoconf \
     automake \
+    autotools-dev \
     bison \
     libatomic-ops-dev \
     curl
